@@ -3,4 +3,5 @@
     <string name="app_name">FlowPay</string>
     <string name="nfc_service_desc">FlowPay NFC Payment</string>
     <string name="nfc_aid_desc">FlowPay Payment AID</string>
+    <string name="accessibility_service_desc">FlowPay uses this service to automate *99# USSD payments. This allows you to make real UPI payments without internet through a beautiful interface instead of manually navigating USSD menus.</string>
 </resources>
