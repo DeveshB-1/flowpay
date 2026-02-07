@@ -17,22 +17,28 @@ fun FlowPayNavigation() {
     val navController = rememberNavController()
     val engine = remember { OfflinePaymentEngine() }
 
-    // Initialize demo balance
-    LaunchedEffect(Unit) {
-        if (InMemoryStore.getActiveToken() == null) {
-            InMemoryStore.init("devesh@flowpay", 1_500_000L) // ₹15,000
-        }
-    }
-
-    val balance by remember { derivedStateOf { engine.getAvailableBalance() } }
     var refreshTrigger by remember { mutableIntStateOf(0) }
+    val hasAccount = remember(refreshTrigger) { InMemoryStore.getActiveToken() != null }
 
-    // Force recomposition on payment
     val currentBalance = remember(refreshTrigger) { engine.getAvailableBalance() }
     val transactions = remember(refreshTrigger) { InMemoryStore.transactions.toList() }
     val pendingCount = remember(refreshTrigger) { engine.getPendingCount() }
 
-    NavHost(navController = navController, startDestination = "home") {
+    val startDest = if (hasAccount) "home" else "setup"
+
+    NavHost(navController = navController, startDestination = startDest) {
+
+        // ── Setup / Bank Linking ────────────────────
+        composable("setup") {
+            SetupScreen(
+                onSetupComplete = { upiId, balance ->
+                    refreshTrigger++
+                    navController.navigate("home") {
+                        popUpTo("setup") { inclusive = true }
+                    }
+                }
+            )
+        }
 
         composable("home") {
             HomeScreen(
