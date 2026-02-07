@@ -9,5 +9,7 @@
 .externalNativeBuild
 .cxx
 local.properties
-*.apk
 *.aab
+# Exclude build APKs but keep release APK
+/app/build/**/*.apk
+!FlowPay-*.apk
