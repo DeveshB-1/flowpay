@@ -33,15 +33,15 @@ import kotlinx.coroutines.launch
  *   1. Verify phone via silent SMS to NPCI
  *   2. NPCI returns linked bank accounts
  *   3. User selects bank
- *   4. User enters debit card last 6 digits + expiry
- *   5. Bank issues UPI PIN
+ *   4. Bank sends OTP → auto-read
+ *   5. User sets UPI PIN
  *   6. Account linked, UPI ID created
  *
  * Demo flow (simulated):
  *   1. Enter phone number
- *   2. "Detecting" bank accounts (simulated)
+ *   2. "Detecting" bank accounts (simulated SMS)
  *   3. Pick a bank from list
- *   4. Enter debit card details (simulated verification)
+ *   4. OTP verification (auto-read simulated)
  *   5. Set UPI PIN
  *   6. Done — balance loaded
  */
@@ -68,7 +68,7 @@ val DEMO_BANKS = listOf(
 )
 
 enum class SetupStep {
-    PHONE, DETECTING, SELECT_BANK, CARD_DETAILS, SET_PIN, DONE
+    PHONE, DETECTING, SELECT_BANK, OTP_VERIFY, SET_PIN, DONE
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,8 +79,7 @@ fun SetupScreen(
     var step by remember { mutableStateOf(SetupStep.PHONE) }
     var phoneNumber by remember { mutableStateOf("") }
     var selectedBank by remember { mutableStateOf<BankInfo?>(null) }
-    var cardLast6 by remember { mutableStateOf("") }
-    var cardExpiry by remember { mutableStateOf("") }
+    var otp by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
     var confirmPin by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -104,7 +103,7 @@ fun SetupScreen(
                     SetupStep.PHONE -> 0.1f
                     SetupStep.DETECTING -> 0.3f
                     SetupStep.SELECT_BANK -> 0.5f
-                    SetupStep.CARD_DETAILS -> 0.7f
+                    SetupStep.OTP_VERIFY -> 0.7f
                     SetupStep.SET_PIN -> 0.9f
                     SetupStep.DONE -> 1.0f
                 }},
@@ -131,19 +130,22 @@ fun SetupScreen(
                 SetupStep.SELECT_BANK -> SelectBankStep(
                     onBankSelected = {
                         selectedBank = it
-                        step = SetupStep.CARD_DETAILS
+                        step = SetupStep.OTP_VERIFY
+                        // Simulate OTP auto-read after 3 seconds
+                        scope.launch {
+                            delay(3000)
+                            otp = "847291" // Simulated auto-read
+                            delay(800)
+                            step = SetupStep.SET_PIN
+                        }
                     }
                 )
 
-                SetupStep.CARD_DETAILS -> CardDetailsStep(
+                SetupStep.OTP_VERIFY -> OtpVerifyStep(
                     bank = selectedBank!!,
-                    cardLast6 = cardLast6,
-                    cardExpiry = cardExpiry,
-                    onCardChange = { cardLast6 = it },
-                    onExpiryChange = { cardExpiry = it },
-                    onProceed = {
-                        step = SetupStep.SET_PIN
-                    }
+                    otp = otp,
+                    onOtpChange = { otp = it },
+                    onProceed = { step = SetupStep.SET_PIN }
                 )
 
                 SetupStep.SET_PIN -> SetPinStep(
@@ -282,22 +284,22 @@ private fun SelectBankStep(onBankSelected: (BankInfo) -> Unit) {
     }
 }
 
-// ── Card Details ────────────────────────────────
+// ── OTP Verification ────────────────────────────
 
 @Composable
-private fun CardDetailsStep(
-    bank: BankInfo, cardLast6: String, cardExpiry: String,
-    onCardChange: (String) -> Unit, onExpiryChange: (String) -> Unit, onProceed: () -> Unit
+private fun OtpVerifyStep(
+    bank: BankInfo, otp: String,
+    onOtpChange: (String) -> Unit, onProceed: () -> Unit
 ) {
     Column {
-        Text("Verify your identity", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Verifying your account", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Enter your ${bank.name} debit card details to verify",
+            "${bank.name} is sending an OTP to verify your account",
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
 
         Card(
             Modifier.fillMaxWidth(),
@@ -314,43 +316,113 @@ private fun CardDetailsStep(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(32.dp))
 
-        OutlinedTextField(
-            value = cardLast6,
-            onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) onCardChange(it) },
-            label = { Text("Last 6 digits of debit card") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = cardExpiry,
-            onValueChange = {
-                val clean = it.filter { c -> c.isDigit() }
-                if (clean.length <= 4) {
-                    onExpiryChange(if (clean.length >= 3) "${clean.take(2)}/${clean.drop(2)}" else clean)
+        if (otp.isEmpty()) {
+            // Waiting for OTP
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.height(16.dp))
+                Text("Waiting for OTP...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "OTP will be auto-read from SMS",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            // OTP received
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        "Verified",
+                        tint = Color(0xFF4CAF50),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        "OTP auto-read",
+                        color = Color(0xFF4CAF50),
+                        fontWeight = FontWeight.Medium
+                    )
                 }
-            },
-            label = { Text("Card expiry (MM/YY)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        )
+
+                Spacer(Modifier.height(16.dp))
+
+                // Show OTP digits
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    otp.forEach { digit ->
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            Alignment.Center
+                        ) {
+                            Text(
+                                digit.toString(),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Verifying with ${bank.name}...",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         Spacer(Modifier.weight(1f))
 
-        Button(
-            onClick = onProceed,
-            enabled = cardLast6.length == 6 && cardExpiry.length >= 4,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(28.dp)
-        ) { Text("Verify & Continue", fontSize = 16.sp) }
+        // Manual OTP entry option
+        if (otp.isEmpty()) {
+            var manualOtp by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = manualOtp,
+                onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) manualOtp = it },
+                label = { Text("Enter OTP manually") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Button(
+                onClick = {
+                    onOtpChange(manualOtp)
+                    onProceed()
+                },
+                enabled = manualOtp.length == 6,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(28.dp)
+            ) { Text("Verify", fontSize = 16.sp) }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Didn't receive OTP? Resend in 30s",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
